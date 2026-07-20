@@ -36,6 +36,19 @@ def judge_groundedness(question: str, context: str, answer: str) -> dict | None:
     return _groq_judge(question, context, answer)
 
 
+def extract_city(question: str) -> str | None:
+    """Return the literal city name the question mentions/implies, or None if
+    no city is mentioned at all.
+
+    Does NOT check whether it's a city this system actually has data for —
+    that's the caller's job (see agent.graph.resolve_city). This function's
+    only job is extraction, same separation as classify_intent/synthesize.
+    """
+    if PROVIDER == "offline":
+        return _offline_extract_city(question)
+    return _groq_extract_city(question)
+
+
 # --- offline (tests/CI only — never the runtime default) --------------------
 def _offline_classify(q: str) -> str:
     if any(p in q for p in ["at risk", "risk of cancel", "cancellation risk",
@@ -45,6 +58,11 @@ def _offline_classify(q: str) -> str:
                              "host notes", "notes", "special"]):
         return "rag"
     return "sql"
+
+
+def _offline_extract_city(question: str) -> str | None:
+    match = re.search(r"\bin ([A-Z][a-zA-Z]+)\b", question)
+    return match.group(1) if match else None
 
 
 # --- groq ---------------------------------------------------------------
@@ -70,6 +88,23 @@ Categories:
 If the question is a general "why is X bad/problematic" question without an explicit mention of cancellation risk or likelihood, prefer rag over risk.
 
 Q: {q}"""
+
+_CITY_EXTRACT_PROMPT = """Extract the city name this question mentions or implies, if any.
+Reply with EXACTLY the city name, normally capitalized (e.g. "Lisbon"), and nothing else.
+If no city is mentioned or implied at all, reply with exactly: NONE
+
+Examples:
+Q: what is the average price in Lisbon?
+A: Lisbon
+
+Q: how many confirmed bookings do we have?
+A: NONE
+
+Q: what is the cancellation rate in Tehran?
+A: Tehran
+
+Q: {q}
+A:"""
 
 
 def _parse_judge_output(text: str) -> dict:
@@ -114,3 +149,14 @@ def _groq_judge(question: str, context: str, answer: str) -> dict:
         messages=[{"role": "user", "content":
             _JUDGE_PROMPT.format(context=context, question=question, answer=answer)}])
     return _parse_judge_output(msg.choices[0].message.content)
+
+
+def _groq_extract_city(question: str) -> str | None:
+    from groq import Groq
+
+    client = Groq()
+    msg = client.chat.completions.create(
+        model="llama-3.3-70b-versatile", max_tokens=10,
+        messages=[{"role": "user", "content": _CITY_EXTRACT_PROMPT.format(q=question)}])
+    text = msg.choices[0].message.content.strip()
+    return None if text.upper() == "NONE" else text

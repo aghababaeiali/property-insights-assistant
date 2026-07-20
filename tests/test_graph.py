@@ -1,5 +1,5 @@
 """Tests for the LangGraph pipeline: routing, validation, and full runs."""
-from agent.graph import AGENT, State, route, validate_node
+from agent.graph import AGENT, State, resolve_city, route, validate_node
 
 
 def test_route_maps_all_known_intents():
@@ -57,3 +57,41 @@ def test_agent_risk_end_to_end():
     out = AGENT.invoke({"question": "which Lisbon listings are most at risk of cancellation?"})
     assert out["intent"] == "risk"
     assert out["answer"].startswith("[RISK]")
+
+
+def test_resolve_city_known_city():
+    city, error = resolve_city("what is the average price in Lisbon?")
+    assert city == "Lisbon"
+    assert error is None
+
+
+def test_resolve_city_no_city_intended():
+    city, error = resolve_city("how many confirmed bookings do we have?")
+    assert city is None
+    assert error is None
+
+
+def test_resolve_city_unrecognized_city_returns_error_not_silent_aggregate():
+    """Regression test: a city we have no data for must not silently fall
+    through to the all-cities aggregate as if it matched (see docs — this
+    was a real bug: "cancellation rate in Tehran?" answered with the
+    portfolio-wide rate as if it were Tehran-specific).
+    """
+    city, error = resolve_city("what is the cancellation rate in Tehran?")
+    assert city is None
+    assert error is not None
+    assert "Tehran" in error
+
+
+def test_agent_sql_rejects_unrecognized_city():
+    out = AGENT.invoke({"question": "what is the cancellation rate in Tehran?"})
+    assert out["intent"] == "sql"
+    assert "Tehran" in out["answer"]
+    assert "%" not in out["answer"]  # must not have computed a rate at all
+
+
+def test_agent_risk_rejects_unrecognized_city():
+    out = AGENT.invoke({"question": "which listings in Tehran are most at risk of cancellation?"})
+    assert out["intent"] == "risk"
+    assert "Tehran" in out["answer"]
+    assert "Highest-risk listings" not in out["answer"]

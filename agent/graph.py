@@ -53,6 +53,35 @@ def router(state: State) -> State:
     return state
 
 
+def resolve_city(question: str) -> tuple[str | None, str | None]:
+    """Figure out which known city (if any) a question is scoped to.
+
+    Returns (city, error). `city` is a name from CITIES, or None if the
+    question isn't scoped to any particular city (a genuine portfolio-wide
+    question). `error` is set instead if the question names a city we don't
+    have data for (e.g. "Tehran") — callers must surface that rather than
+    silently answering with the all-cities aggregate as if it matched.
+
+    The substring match (fast, free, handles the common case) runs first;
+    the LLM fallback only fires when it finds nothing, to disambiguate "no
+    city intended" from "a city was named but not recognized" — so a plain
+    portfolio-wide question ("how many confirmed bookings do we have?")
+    still costs one LLM call here (can't be told apart from an unrecognized
+    city without asking), but any question that already names a known city
+    literally costs zero extra latency.
+    """
+    q = question.lower()
+    city = next((c for c in CITIES if c.lower() in q), None)
+    if city:
+        return city, None
+
+    extracted = llm.extract_city(question)
+    if extracted and extracted not in CITIES:
+        return None, (f"I don't have data for '{extracted}' — "
+                       f"known cities are: {', '.join(CITIES)}.")
+    return extracted, None
+
+
 def sql_node(state: State) -> State:
     """Answer simple aggregate questions from the DB.
 
@@ -60,7 +89,11 @@ def sql_node(state: State) -> State:
     all in one place.
     """
     q = state["question"].lower()
-    city = next((c for c in CITIES if c.lower() in q), None)
+    city, error = resolve_city(state["question"])
+    if error:
+        state["sql_result"] = error
+        state["answer"] = f"[SQL] {error}"
+        return state
     where = f"WHERE l.city = '{city}'" if city else ""
 
     if "cancel" in q:
@@ -100,8 +133,11 @@ def risk_node(state: State) -> State:
     Composes the DB (candidate bookings), the ML model (risk score), and
     retrieval (the qualitative reason).
     """
-    q = state["question"].lower()
-    city = next((c for c in CITIES if c.lower() in q), None)
+    city, error = resolve_city(state["question"])
+    if error:
+        state["risk_result"] = error
+        state["answer"] = f"[RISK] {error}"
+        return state
     where = f"AND l.city = '{city}'" if city else ""
     rows = db.query(f"""
         SELECT b.listing_id, b.lead_time_days, b.nights, b.num_guests,

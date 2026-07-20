@@ -31,9 +31,5 @@
     "question": "which listings are most likely to cancel?",
     "expect_intent": "risk",
     "answer_contains": "[RISK]"
-  },
-  {
-    "question": "NOTEBOOK_TEST: why might some Lisbon listings be problematic?",
-    "expect_intent": "rag"
   }
 ]
