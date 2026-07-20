@@ -43,5 +43,8 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Seed database
+        run: uv run python -m agent.db seed
+
       - name: Test
         run: uv run pytest -v

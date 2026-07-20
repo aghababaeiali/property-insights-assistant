@@ -1,5 +1,15 @@
 """
-Builds the Postgres analytics DB the agent queries.
+Builds/queries the Postgres analytics DB the agent uses.
+
+Seeding (listings/bookings/bookings_initial) is idempotent and explicit —
+see seed() — not tied to application startup. get_connection() only auto-
+seeds an empty database (first-time local setup); it never re-seeds a
+database that already has data, so editing data/*.csv or data/*.json will
+NOT be picked up automatically — run `python -m agent.db seed --force` to
+reload. This is deliberate: the old behavior (drop + reload from source
+files on every process's first DB connection) meant two processes starting
+concurrently would race to rebuild the same tables underneath each other,
+and every cold start paid a full reload for no reason.
 
 Loads the initial bookings, then applies the second batch
 (data/bookings_update.csv). The update batch contains new bookings and
@@ -21,7 +31,7 @@ import json
 import os
 
 import pandas as pd
-from sqlalchemy import bindparam, create_engine, text
+from sqlalchemy import bindparam, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 HERE = os.path.dirname(__file__)
@@ -39,9 +49,19 @@ _ENGINE = None
 
 
 def get_connection() -> Engine:
+    """Return the (cached) engine, seeding an empty database on first use.
+
+    Only seeds if `bookings` doesn't exist yet — a database that's already
+    populated is left untouched. For explicit control (e.g. reloading after
+    editing the source files, or seeding once in CI/deploy rather than on
+    an app process's first query) use seed() directly instead of relying on
+    this.
+    """
     global _ENGINE
     if _ENGINE is None:
-        _ENGINE = _build()
+        _ENGINE = create_engine(DATABASE_URL)
+        if not inspect(_ENGINE).has_table("bookings"):
+            _load_from_source(_ENGINE)
     return _ENGINE
 
 
@@ -49,9 +69,13 @@ def _read_bookings(path: str) -> pd.DataFrame:
     return pd.read_csv(path, header=0, parse_dates=_DATE_COLS)
 
 
-def _build() -> Engine:
-    engine = create_engine(DATABASE_URL)
+def _load_from_source(engine: Engine) -> None:
+    """Drop + reload listings/bookings/bookings_initial from data/*.
 
+    Not idempotent on its own — always rebuilds. Callers (get_connection(),
+    seed()) are responsible for only invoking this when that's actually
+    intended.
+    """
     listings = pd.read_json(os.path.join(DATA, "listings.json"))
     listings["amenities"] = listings["amenities"].apply(json.dumps)
     bookings_initial = _read_bookings(os.path.join(DATA, "bookings.csv"))
@@ -73,7 +97,23 @@ def _build() -> Engine:
         con.execute(text("ALTER TABLE bookings ADD PRIMARY KEY (booking_id)"))
 
     apply_updates(engine)
-    return engine
+
+
+def seed(force: bool = False) -> None:
+    """Explicit, scriptable seed entry point: `python -m agent.db seed [--force]`.
+
+    Without --force: a no-op if `bookings` already exists — safe to run
+    repeatedly (e.g. every CI run or deploy) without wiping data or racing
+    other processes. With --force: reloads from data/* regardless of
+    current state (e.g. after editing the source CSV/JSON files).
+    """
+    global _ENGINE
+    _ENGINE = create_engine(DATABASE_URL)
+    if force or not inspect(_ENGINE).has_table("bookings"):
+        _load_from_source(_ENGINE)
+        print("Seeded database from data/*.")
+    else:
+        print("Already seeded (bookings table exists) — use --force to reload from source files.")
 
 
 def apply_updates(engine: Engine) -> None:
@@ -112,9 +152,9 @@ _OBSERVABILITY_READY = False
 def ensure_observability_tables() -> None:
     """Create the logging/review tables if they don't exist yet.
 
-    Deliberately NOT dropped by `_build()` — these accumulate across process
-    restarts, unlike `listings`/`bookings`, which are analytics tables meant
-    to be rebuilt fresh from the CSV/JSON source each time.
+    Deliberately NOT dropped by `_load_from_source()` — these accumulate
+    across process restarts and re-seeds, unlike `listings`/`bookings`,
+    which get rebuilt fresh from the CSV/JSON source when seeded.
     """
     global _OBSERVABILITY_READY
     if _OBSERVABILITY_READY:
@@ -184,3 +224,15 @@ def log_agent_request(*, question: str, intent: str, answer: str,
                 VALUES (:log_id, :question, :answer, :intent, :reason)
             """), {"log_id": log_id, "question": question, "answer": answer,
                     "intent": intent, "reason": reason})
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed the Postgres DB from data/*.")
+    parser.add_argument("command", choices=["seed"])
+    parser.add_argument("--force", action="store_true",
+                         help="reload from source files even if already seeded")
+    args = parser.parse_args()
+    if args.command == "seed":
+        seed(force=args.force)

@@ -35,14 +35,25 @@ Requires [uv](https://docs.astral.sh/uv/), Docker, and a
 [Groq API key](https://console.groq.com).
 
 ```bash
-cp .env.example .env       # fill in GROQ_API_KEY
+cp .env.example .env          # fill in GROQ_API_KEY
 docker compose up -d --wait   # starts Postgres on localhost:5432
 uv sync                       # installs dependencies into .venv
-uv run python -m ml.model     # trains the cancellation-risk model
+uv run python -m agent.db seed   # loads data/*.csv,json into Postgres
+uv run python -m ml.model        # trains the cancellation-risk model
 ```
 
 `.env` is loaded automatically (via `python-dotenv`) by anything that
 imports the `agent` package — no need to `export` variables manually.
+
+Seeding is idempotent and explicit — it's a no-op if the DB already has
+data, so it's safe to run repeatedly (that's also how CI does it, as its
+own step, rather than seeding implicitly as a side effect of the first
+query). If you edit `data/*.csv`/`data/*.json`, re-run with `--force` to
+reload:
+
+```bash
+uv run python -m agent.db seed --force
+```
 
 ## Usage
 

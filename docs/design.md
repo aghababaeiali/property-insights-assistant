@@ -40,19 +40,24 @@ What's still missing, not yet built:
 
 ## Scaling
 
-The agent logic itself isn't the bottleneck — two specific design choices
-are:
+The agent logic itself isn't the bottleneck. One thing was, and got fixed:
+`agent/db.py`'s `_build()` used to drop and reload `listings`/`bookings`/
+`bookings_initial` from the CSV/JSON source files on every process's first
+DB connection — fine for one local instance, but two processes starting
+concurrently would race to rebuild the same tables underneath each other,
+and every cold start paid a full reload for no reason. `get_connection()`
+now only seeds an empty database; seeding itself is a separate, idempotent,
+explicit step (`python -m agent.db seed [--force]`) run once in CI/deploy,
+not an implicit side effect of the first query. Deliberately *not* a full
+ETL pipeline — there's no actual recurring/external data source here (two
+static CSVs and a JSON file), so an orchestrator (Airflow/Dagster/etc.)
+would be complexity with no payoff. If this ever connects to a real,
+continuously-updating booking system instead of static files, that's the
+point where a real ingestion pipeline becomes worth it, not before.
 
-1. `agent/db.py`'s `_build()` drops and reloads `listings`/`bookings`/
-   `bookings_initial` from the CSV/JSON source files on a process's first DB
-   connection. Fine for one local instance; breaks with more than one
-   process running (each would race to rebuild the same tables), and
-   doesn't reflect how real transactional booking data would actually
-   arrive. Production needs a real ETL/migration pipeline, with the agent
-   connecting to an already-live analytics DB it never rebuilds itself.
-2. `agent/retriever.py` is an O(n) linear scan over every listing on every
-   query. Entirely fine at 80 listings; would need real vector search
-   (embeddings + an index) past a few thousand.
+Still a real bottleneck: `agent/retriever.py` is an O(n) linear scan over
+every listing on every query. Entirely fine at 80 listings; would need real
+vector search (embeddings + an index) past a few thousand.
 
 On the other hand: the compiled `AGENT` graph is stateless per request — no
 server-side session, all state lives in Postgres and the request payload —
