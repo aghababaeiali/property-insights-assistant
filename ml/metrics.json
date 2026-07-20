@@ -1,0 +1,12 @@
+{
+  "accuracy": 0.666,
+  "roc_auc": 0.706,
+  "pr_auc": 0.625,
+  "base_rate": 0.411,
+  "cv_auc": 0.716,
+  "best_params": {
+    "clf__C": 10,
+    "clf__class_weight": null,
+    "clf__l1_ratio": 0.0
+  }
+}

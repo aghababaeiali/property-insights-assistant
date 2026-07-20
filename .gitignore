@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+ml/cancellation_model.joblib
+.env
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+.vscode/
