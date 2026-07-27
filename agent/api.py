@@ -4,6 +4,20 @@ from pydantic import BaseModel
 
 from agent.graph import AGENT
 
+
+import os
+
+from azure.monitor.opentelemetry import configure_azure_monitor
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from agent.graph import AGENT
+
+if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor()
+
+
+
 app = FastAPI(title="Property Insights Assistant")
 
 
