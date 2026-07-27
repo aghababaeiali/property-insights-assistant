@@ -10,3 +10,4 @@ ml/cancellation_model.joblib
 dist/
 build/
 .vscode/
+.DS_Store
