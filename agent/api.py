@@ -4,12 +4,19 @@ import os
 
 from azure.monitor.opentelemetry import configure_azure_monitor
 from fastapi import FastAPI
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from pydantic import BaseModel
 
 from agent.graph import AGENT
 
 if os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING"):
     configure_azure_monitor()
+    # azure-monitor-opentelemetry only auto-instruments django/fastapi/flask/
+    # psycopg2/requests/urllib/urllib3 (see azure.monitor.opentelemetry._constants
+    # ._FULLY_SUPPORTED_INSTRUMENTED_LIBRARIES) — httpx isn't in that list, so the
+    # openai SDK's calls (it uses httpx exclusively, not requests) are invisible
+    # to App Insights without this.
+    HTTPXClientInstrumentor().instrument()
 
 
 
