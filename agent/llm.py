@@ -210,6 +210,7 @@ def _azure_judge(question: str, context: str, answer: str) -> dict:
     client = _azure_client()
     msg = client.chat.completions.create(
         model=_azure_deployment(), max_completion_tokens=100,
+        reasoning_effort="minimal",
         messages=[{"role": "user", "content":
             _JUDGE_PROMPT.format(context=context, question=question, answer=answer)}])
     return _parse_judge_output(msg.choices[0].message.content)
