@@ -28,10 +28,24 @@ from typing import TypedDict
 import pandas as pd
 from langgraph.graph import END, START, StateGraph
 
-from agent import db, llm, retriever
-from ml.model import CITIES, engineer_features, predict_cancellation_risk
+from agent import db, llm, retriever, risk_client
+from ml.model import CITIES, engineer_features
+from ml.model import predict_cancellation_risk as _local_predict_cancellation_risk
 
 JUDGE_SAMPLE_RATE = float(os.environ.get("JUDGE_SAMPLE_RATE", "0.3"))
+
+
+def predict_cancellation_risk(booking_features: dict) -> float:
+    """Local joblib model for groq/offline; the deployed Azure ML endpoint
+    for azure — same LLM_PROVIDER flag picks both the LLM and the
+    risk-scoring backend (mirrors agent.llm/agent.retriever), so the two
+    "modes" (local/offline vs Azure) stay fully aligned rather than driven
+    by separate flags. risk_node calling this rather than either backend
+    directly is what keeps it working identically in both modes.
+    """
+    if llm.PROVIDER == "azure":
+        return risk_client.predict_cancellation_risk(booking_features)
+    return _local_predict_cancellation_risk(booking_features)
 
 
 class State(TypedDict, total=False):

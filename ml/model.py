@@ -8,6 +8,7 @@ import json
 import os
 
 import joblib
+import mlflow
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, average_precision_score, roc_auc_score
@@ -124,29 +125,40 @@ def train():
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.25, random_state=0, stratify=y)
 
-    pipeline = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(max_iter=2000, solver="liblinear", random_state=0)),
-    ])
-    search = GridSearchCV(pipeline, PARAM_GRID, cv=5, scoring="roc_auc", n_jobs=-1)
-    search.fit(Xtr, ytr)
-    model = search.best_estimator_
+    with mlflow.start_run():
+        pipeline = Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(max_iter=2000, solver="liblinear", random_state=0)),
+        ])
+        search = GridSearchCV(pipeline, PARAM_GRID, cv=5, scoring="roc_auc", n_jobs=-1)
+        search.fit(Xtr, ytr)
+        model = search.best_estimator_
 
-    p = model.predict_proba(Xte)[:, 1]
-    metrics = {
-        "accuracy": round(accuracy_score(yte, p > 0.5), 3),
-        "roc_auc": round(roc_auc_score(yte, p), 3),
-        "pr_auc": round(average_precision_score(yte, p), 3),
-        "base_rate": round(y.mean(), 3),
-        "cv_auc": round(search.best_score_, 3),
-        "best_params": search.best_params_,
-    }
-    joblib.dump({"model": model, "features": FEATURES}, MODEL_PATH)
-    with open(os.path.join(HERE, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
-    # This is the headline number the teammate reported.
-    print(f"Model trained. Accuracy: {metrics['accuracy']:.2%}")
-    print(f"Full metrics: {metrics}")
+        p = model.predict_proba(Xte)[:, 1]
+        metrics = {
+            "accuracy": round(accuracy_score(yte, p > 0.5), 3),
+            "roc_auc": round(roc_auc_score(yte, p), 3),
+            "pr_auc": round(average_precision_score(yte, p), 3),
+            "base_rate": round(y.mean(), 3),
+            "cv_auc": round(search.best_score_, 3),
+            "best_params": search.best_params_,
+        }
+
+        # MLflow tracking — only meaningful inside an Azure ML job (or any
+        # MLflow-tracked run); harmless no-op locally with no tracking URI set.
+        mlflow.log_params(search.best_params_)
+        mlflow.log_metrics({k: v for k, v in metrics.items() if k != "best_params"})
+        mlflow.sklearn.log_model(model, "model")
+        model_uri = f"runs:/{mlflow.active_run().info.run_id}/model"
+        mlflow.register_model(model_uri, "cancellation-risk-model")
+        # Local fallback — unchanged from before, so `python -m ml.model`
+        # still works standalone with no Azure ML dependency at all.
+        joblib.dump({"model": model, "features": FEATURES}, MODEL_PATH)
+        with open(os.path.join(HERE, "metrics.json"), "w") as f:
+            json.dump(metrics, f, indent=2)
+
+        print(f"Model trained. Accuracy: {metrics['accuracy']:.2%}")
+        print(f"Full metrics: {metrics}")
     return metrics
 
 

@@ -1,0 +1,10 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+name: blue
+endpoint_name: cancellation-risk-endpoint
+model: azureml:cancellation-risk-model:1
+code_configuration:
+  code: ../..
+  scoring_script: ml/azure/score.py
+environment: azureml:property-insights-inference-env@latest
+instance_type: Standard_DS2_v2
+instance_count: 1

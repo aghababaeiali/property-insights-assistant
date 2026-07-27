@@ -1,0 +1,9 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+code: ../..
+command: >-
+  export DATABASE_URL=${{inputs.database_url}} && python -m ml.model
+environment: azureml:property-insights-training-env@latest
+compute: azureml:cpu-cluster
+inputs:
+  database_url:
+    type: string
