@@ -1,9 +1,4 @@
 """FastAPI wrapper around the LangGraph agent — POST /ask {"question": "..."}"""
-from fastapi import FastAPI
-from pydantic import BaseModel
-
-from agent.graph import AGENT
-
 
 import os
 
