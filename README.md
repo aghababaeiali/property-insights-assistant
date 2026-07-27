@@ -143,6 +143,27 @@ docker build --platform linux/amd64 -t property-insights-agent .
 # above set as secrets/env vars on the container app
 ```
 
+In practice, this build-and-deploy step is automated: pushing to `main`
+triggers a CI workflow (lint + test), which on success triggers a separate
+Deploy workflow (`.github/workflows/deploy.yml`) that builds the image,
+pushes it to ACR, and updates the Container App — authenticated to Azure
+via OIDC federation, no stored cloud secret. See ARCHITECTURE.md's CI/CD
+section for the setup and the two federated-credential bugs hit along the
+way.
+
+Also set `APPLICATIONINSIGHTS_CONNECTION_STRING` to send request/dependency
+tracing to Application Insights (`agent/api.py`, gated on that env var
+being present) — covers Postgres, Azure AI Search, Azure OpenAI, and the
+Azure ML risk endpoint. See ARCHITECTURE.md's Application Insights section
+for a real instrumentation gap hit and fixed along the way (Azure OpenAI
+calls specifically needed an explicit httpx instrumentor).
+
+`terraform/*.tf` has a partial Terraform config covering the resource
+group, Postgres, ACR, Container Apps, and Azure OpenAI — Azure AI Search
+and Azure ML remain `az`-CLI-provisioned by design; see ARCHITECTURE.md's
+Terraform section for what's covered, what deliberately isn't, and the
+local-state limitation.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture of what's
 Azure-backed, why it's built this way, and real bugs hit along the way.
 
@@ -176,6 +197,9 @@ tests/               pytest suite (mirrors agent/ and ml/) — runs entirely
                      against LLM_PROVIDER=offline, no Azure credentials needed
 notebooks/           exploratory/verification notebooks
 docs/                design notes
+terraform/           partial IaC (resource group, Postgres, ACR, Container
+                     Apps, Azure OpenAI) — see ARCHITECTURE.md for scope
+.github/workflows/   CI (test) and Deploy (build/push/deploy via OIDC)
 Dockerfile           container image for the FastAPI app (agent/api.py)
 ```
 

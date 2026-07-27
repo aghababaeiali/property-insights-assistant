@@ -14,6 +14,17 @@ Already built, not hypothetical:
   in (`LANGCHAIN_TRACING_V2=true`) for per-node input/output/latency with
   zero extra code, since LangGraph auto-instruments when the env vars are
   set.
+- **Dependency tracing (Azure)**: `configure_azure_monitor()` in
+  `agent/api.py`, gated on `APPLICATIONINSIGHTS_CONNECTION_STRING`, sends
+  request/dependency spans to Application Insights — Postgres, Azure AI
+  Search, and the Azure ML risk endpoint all showed up out of the box.
+  Azure OpenAI didn't: azure-monitor-opentelemetry's auto-instrumentation
+  allowlist is `django/fastapi/flask/psycopg2/requests/urllib/urllib3`, and
+  the `openai` SDK's client is httpx-based, not on that list. Fixed by
+  adding `opentelemetry-instrumentation-httpx` and calling
+  `HTTPXClientInstrumentor().instrument()` explicitly alongside
+  `configure_azure_monitor()` — confirmed via the raw `dependencies` table,
+  not just the visual Application Map, since the map can lag or merge nodes.
 - **Answer quality signal**: `validate_node` (deterministic, every request)
   checks that an answer only cites listings that were actually
   retrieved/scored — catches hallucinated citations with no added latency.
@@ -30,8 +41,13 @@ What's still missing, not yet built:
 
 - **Dashboards/alerting** on what's already being collected —
   `validation_issues` rate, `judge_grounded=false` rate, p50/p95 latency per
-  intent, cost per day per provider. The data exists in `agent_logs`;
-  nothing currently watches it or pages anyone.
+  intent, cost per day per provider. The data exists — in `agent_logs`, and
+  now also as real dependency-level latency/call-count/success data in
+  Application Insights (see ARCHITECTURE.md's Measured performance section
+  for what that data actually looks like) — but nothing currently watches
+  either source or pages anyone. A dashboard/alert rule reading that data
+  is still a real gap, not just a hypothetical one now that the underlying
+  telemetry is confirmed flowing.
 - **Model drift monitoring**. Cancellation base rate isn't stationary in
   this data (41.9% early in the training window vs 38.5% later) — a real
   deployment needs a scheduled job comparing live prediction distribution
@@ -91,9 +107,13 @@ Named explicitly rather than silently skipped:
   and a PII review before shipping.
 - **Auth / multi-tenancy.** No concept of "who is asking" anywhere in the
   current design.
-- **Model versioning / rollback.** `ml/cancellation_model.joblib` is
-  overwritten in place on every `train()` run — no registry, no ability to
-  roll back a bad retrain, no A/B comparison between model versions.
+- **Model versioning / rollback.** The Azure ML training job does register
+  the model into the workspace's MLflow registry (see ARCHITECTURE.md) —
+  but that's raw versioning, not a rollback workflow: nothing automates
+  promoting or pinning which registered version the online endpoint
+  actually serves, and there's no A/B comparison between versions. Outside
+  Azure ML, `ml/cancellation_model.joblib` is still just overwritten in
+  place on every `train()` run — no registry at all for that path.
 - **Automatic retraining.** `python -m ml.model` is a manual step. Given the
   base-rate drift noted above, a real system needs a scheduled retrain plus
   the drift-monitoring mentioned there to know *when* to trigger one.

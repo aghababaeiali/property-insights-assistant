@@ -11,3 +11,8 @@ dist/
 build/
 .vscode/
 .DS_Store
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/*.tfplan

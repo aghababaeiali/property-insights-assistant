@@ -1,0 +1,13 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# terraform.tfvars is never committed — same principle as .env.
+postgres_admin_password = "REPLACE_ME"
+database_url            = "REPLACE_ME"
+
+# Azure AI Search and Azure ML are provisioned outside this Terraform config
+# (see ARCHITECTURE.md's Terraform section for why) — these values come from
+# whatever az-CLI-created resources you're pointing the app at.
+azure_search_endpoint      = "REPLACE_ME"
+azure_search_api_key       = "REPLACE_ME"
+azure_search_index         = "REPLACE_ME"
+azure_ml_risk_endpoint_url = "REPLACE_ME"
+azure_ml_risk_endpoint_key = "REPLACE_ME"
