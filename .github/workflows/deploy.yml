@@ -1,0 +1,38 @@
+name: Deploy to Azure
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          az acr login --name propertyinsightsacr
+          docker build --platform linux/amd64 -t propertyinsightsacr.azurecr.io/property-insights-agent:${{ github.sha }} .
+          docker push propertyinsightsacr.azurecr.io/property-insights-agent:${{ github.sha }}
+
+      - name: Deploy new revision
+        run: |
+          az containerapp update \
+            --name property-insights-app \
+            --resource-group property-insights-rg \
+            --image propertyinsightsacr.azurecr.io/property-insights-agent:${{ github.sha }}
